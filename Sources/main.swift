@@ -1,8 +1,5 @@
 import Cocoa
 
-// Reads ~/.claude/statusbar/state.json (written by Claude Code hooks) and renders a
-// Claude "spark" + short status label in the macOS menu bar. No window, no dock icon.
-
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let statePath = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/state.json")
@@ -14,9 +11,6 @@ final class StatusController: NSObject, NSMenuDelegate {
     var animTimer: Timer?
     var frameIdx = 0
 
-    // Self-quit lifecycle: we're launched by the SessionStart hook; we decide when to
-    // leave (see checkLifecycle). No background/login item — the check only runs while
-    // we're already alive.
     let launchedAt = Date()
     var notNeededSince: Date?
     let launchGrace: TimeInterval = 5   // settle time after launch before we may quit
@@ -29,12 +23,9 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     let brand = NSColor(srgbRed: 0.851, green: 0.467, blue: 0.341, alpha: 1) // #d97757, Anthropic's official "Orange" accent
     let amber = NSColor(srgbRed: 0.95, green: 0.73, blue: 0.18, alpha: 1) // "awaiting permission" yellow dot
-    let frames: [NSImage] = StatusController.loadFrames() // 8 thinking-spark morph masks
+    let frames: [NSImage] = StatusController.loadFrames()
     let spriteFPS: Double = 9 // tune: 8 frames per loop -> ~0.9s/cycle
 
-    // Animation styles. `web` = the captured claude.ai morph (default). `code` = a
-    // placeholder glyph spinner for the Claude Code terminal look, to be matched to
-    // the real cadence from a screen recording.
     enum AnimStyle: String { case web, code, crab }
     var animStyle: AnimStyle = .web
     var showTimer = true
@@ -49,16 +40,12 @@ final class StatusController: NSObject, NSMenuDelegate {
     var prevEff = ""               // last effective state, for detecting turn completion
     var lastTurnStart: Double = 0  // active turn's start time, for the 1-minute gate
     var iconColor: NSColor? { iconSystem ? nil : brand } // nil => render as an adaptive template
-    // Claude Code spinner: forward loop through the 6 glyphs, each with its own peak
-    // size (so the pulse matches the video), and a size-down / swap / size-up tween at
-    // every boundary so each distinct glyph is clearly shown (no flicker, no missing ones).
-    let codeGlyphs = ["✻", "✽", "✶", "✳", "✢"] // dot dropped: the shrink-to-dip already reads as it
-    let codePeaks: [CGFloat] = [1.0, 1.0, 1.0, 1.0, 1.0] // every glyph grows to full size
+    let codeGlyphs = ["✻", "✽", "✶", "✳", "✢"]
+    let codePeaks: [CGFloat] = [1.0, 1.0, 1.0, 1.0, 1.0]
     let codeDip: CGFloat = 0.14 // glyph shrinks to this at each swap
     let codeSub = 18            // sub-frames per glyph (tween smoothness)
     let codeCycle: Double = 3.8 // seconds for the full loop (lower = faster)
     lazy var codeGlyphMasks: [NSImage] = codeGlyphs.map { StatusController.glyphMask($0) }
-    // Claude Code Crab: full-color pixel-art walk cycle baked from Clawd-CrabWalking.gif.
     let crabFPS: Double = 12.5 // matches the source GIF's 0.08s frame delay
     lazy var crabFrames: [NSImage] = StatusController.decodePNGs(clawdCrabFramePNGs)
     var fps: Double {
@@ -95,10 +82,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         checkForUpdate()
     }
 
-    // Wire up the Claude Code hooks ourselves by running the bundled installer, so the
-    // user just drags the app in and opens it — no manual Terminal step. Runs on first
-    // install AND whenever the version changes, so upgrades pick up new/changed hooks and
-    // retire old artifacts (e.g. the 0.0.2 background watcher). install.js is idempotent.
+    // Re-runs on first install AND on every version change, so upgrades pick up hook
+    // changes and retire old artifacts. See CLAUDE.md "ensureHooksInstalled" for why.
     func ensureHooksInstalled() {
         let d = UserDefaults.standard
         let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
@@ -120,9 +105,8 @@ final class StatusController: NSObject, NSMenuDelegate {
     let releaseAPIURL = "https://api.github.com/repos/m1ckc3s/claude-status-bar/releases/latest"
     let releasePageURL = "https://github.com/m1ckc3s/claude-status-bar/releases/latest"
 
-    // Once a day, ask GitHub for the latest release tag and cache it. The user's IP reaches
-    // GitHub (same as downloading the app), but nothing is sent to us — no server, no logging.
-    // The menu reads the cached result; "Update available" just opens the release page.
+    // Once/day: cache GitHub's latest release tag in UserDefaults. Nothing sent to us.
+    // See CLAUDE.md "Update check" for the privacy/behavior notes.
     func checkForUpdate() {
         let d = UserDefaults.standard
         let now = Date().timeIntervalSince1970
@@ -199,8 +183,6 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        // Version (gray, non-clickable) + an "Update available" link only when GitHub has a
-        // newer release. Up to date = just the version line, nothing extra.
         menu.addItem(NSMenuItem(title: "Version \(currentVersion)", action: nil, keyEquivalent: ""))
         if let latest = UserDefaults.standard.string(forKey: "latestVersion"), versionIsNewer(latest, than: currentVersion) {
             let up = NSMenuItem(title: "Update available", action: #selector(openLatestRelease), keyEquivalent: "")
@@ -212,7 +194,6 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.addItem(q)
     }
 
-    // A gray section-header item: native style on macOS 14+, plain disabled item below that.
     func header(_ title: String) -> NSMenuItem {
         if #available(macOS 14.0, *) { return NSMenuItem.sectionHeader(title: title) }
         let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -295,8 +276,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             }
         }
 
-        // Completion chime: track the active turn's start, and when a turn that ran longer
-        // than a minute finishes (transitions to "done"), play the sound once.
+        // Chime once when a turn that ran >= 1 min transitions to "done".
         if (eff == "thinking" || eff == "tool"), started > 0 { lastTurnStart = started }
         if eff == "done", prevEff != "done", playCompletionSound,
            lastTurnStart > 0, Date().timeIntervalSince1970 - lastTurnStart >= 60 {
@@ -314,22 +294,18 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
-    // MARK: self-quit lifecycle
+    // MARK: self-quit lifecycle (rationale + warmup-churn history in CLAUDE.md)
 
-    // True while the Claude desktop app is running. Cheap, needs no permission, and
-    // unlike the SessionEnd hook it stays reliable during the app's shutdown.
     func claudeDesktopRunning() -> Bool {
         NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == claudeDesktopBundleID }
     }
 
-    // Active Claude Code sessions = one file per session id in sessions.d/ (lifecycle.js).
-    // Covers the CLI, where there's no desktop process to watch.
     func sessionCount() -> Int {
         (try? FileManager.default.contentsOfDirectory(atPath: sessionsDir).count) ?? 0
     }
 
-    // Stay while Claude desktop is open OR a session is active; otherwise quit (after a
-    // short, debounced grace so warmup-session churn and app relaunches don't kill us).
+    // Stay while Claude desktop is open OR a session is active; otherwise quit after a
+    // short debounced grace (warmup-session churn must not kill us).
     func checkLifecycle() {
         let now = Date()
         if now.timeIntervalSince(launchedAt) < launchGrace { return }
@@ -373,14 +349,12 @@ final class StatusController: NSObject, NSMenuDelegate {
         } else {
             animTimer?.invalidate(); animTimer = nil
             frameIdx = 0
-            // paused dot for "awaiting permission"; otherwise the resting Claude logo.
             button.image = dot ? dotIcon(color: color) : restingIcon(color: color)
         }
         applyTitle()
         if button.image == nil { button.image = dot ? dotIcon(color: color) : restingIcon(color: color) }
     }
 
-    // Reproduce the in-chat thinking spark: step through the active style's frames.
     func animStep() {
         frameIdx = (frameIdx + 1) % frameCount
         statusItem.button?.image = iconImage(color: activeColor, frame: frameIdx)
@@ -412,8 +386,6 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     // MARK: icon
 
-    // The 8 thinking-spark morph frames, rasterized from claude.ai's sprite into
-    // alpha masks (SparkFrames.swift). Decoded once at launch.
     static func loadFrames() -> [NSImage] { decodePNGs(claudeSparkFramePNGs) }
     static func decodePNGs(_ list: [String]) -> [NSImage] {
         list.compactMap { Data(base64Encoded: $0).flatMap(NSImage.init(data:)) }
@@ -422,10 +394,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     func iconImage(color: NSColor?, frame: Int) -> NSImage {
         if animStyle == .web { return tint(frames, color: color, frame: frame) }
         if animStyle == .crab { return crabIcon(frame: frame) }
-        // Claude Code: which glyph + how big right now.
         let i = (frame / codeSub) % codeGlyphs.count
         let local = (CGFloat(frame % codeSub) + 0.5) / CGFloat(codeSub) // 0…1 within this glyph
-        // Envelope: rise, hold at peak, fall — so each glyph lands before the swap.
+        // Scale envelope per glyph: rise, hold at peak, fall, so each lands before the swap.
         let env: CGFloat
         if local < 0.30 { let u = local / 0.30; env = u * u * (3 - 2 * u) }
         else if local > 0.70 { let u = (1 - local) / 0.30; env = u * u * (3 - 2 * u) }
@@ -434,8 +405,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         return codeIcon(color: color, glyph: i, scale: scale)
     }
 
-    // Draw glyph mask `i` scaled about center (1.0 == ~92% of the icon). A nil color
-    // produces an adaptive template image (system draws it black/white per the menu bar).
+    // nil color => adaptive template image (system draws it black/white per the menu bar).
     func codeIcon(color: NSColor?, glyph: Int, scale: CGFloat) -> NSImage {
         let s: CGFloat = 18
         guard glyph < codeGlyphMasks.count else { return NSImage(size: NSSize(width: s, height: s)) }
@@ -485,15 +455,13 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
     }
 
-    // The resting icon is always the official Claude logo, regardless of style.
     let logoSet: [NSImage] = Data(base64Encoded: claudeLogoPNG).flatMap(NSImage.init(data:)).map { [$0] } ?? []
     func restingIcon(color: NSColor?) -> NSImage {
         if animStyle == .crab { return crabIcon(frame: 0) }
         return tint(logoSet.isEmpty ? frames : logoSet, color: color, frame: 0)
     }
 
-    // Full-color crab frame scaled to the menu-bar height. Not tinted (it's a colored
-    // character), so the Orange/System setting doesn't affect this style.
+    // Full color (isTemplate=false), so the Orange/System color setting does NOT apply here.
     func crabIcon(frame: Int) -> NSImage {
         guard !crabFrames.isEmpty else { return NSImage(size: NSSize(width: 18, height: 18)) }
         let src = crabFrames[frame % crabFrames.count]
@@ -509,7 +477,6 @@ final class StatusController: NSObject, NSMenuDelegate {
         return img
     }
 
-    // A small filled dot — used for the paused "awaiting permission" state.
     func dotIcon(color: NSColor?) -> NSImage {
         let s: CGFloat = 18, d: CGFloat = 9
         let img = NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
@@ -521,7 +488,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         return img
     }
 
-    // Paint `color` through a frame mask's alpha, so the same frames recolor (clay/red).
+    // Paint `color` through a frame mask's alpha (destinationIn) so frames recolor.
     func tint(_ set: [NSImage], color: NSColor?, frame: Int) -> NSImage {
         let s: CGFloat = 18
         guard !set.isEmpty else { return NSImage(size: NSSize(width: s, height: s)) }

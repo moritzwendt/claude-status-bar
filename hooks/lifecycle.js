@@ -1,15 +1,6 @@
 #!/usr/bin/env node
-// SessionStart/SessionEnd lifecycle: launch the menu bar app when Claude Code opens
-// (SessionStart fires on desktop-app launch, on `claude` in a terminal, and when a
-// conversation is opened). The app quits ITSELF when it's no longer needed (Claude
-// closed and no active session) — see main.swift checkLifecycle() — so this no longer
-// kills the app.
-//
-// Active sessions are tracked as one file per session id (read from the hook JSON on
-// stdin) under sessions.d/. This is race-free: the desktop app fires a burst of
-// transient warmup sessions on launch, and a shared numeric counter drifted under that
-// concurrency. Distinct files don't. The app counts the files to know a CLI session is
-// alive when there's no desktop process to watch.
+// SessionStart/SessionEnd: launch the app, and track sessions as one file per session id
+// in sessions.d/ (race-free; the app quits itself). Rationale + history in CLAUDE.md.
 // Usage: node lifecycle.js <start|end>   (hook JSON, incl. session_id, arrives on stdin)
 
 const fs = require("fs");

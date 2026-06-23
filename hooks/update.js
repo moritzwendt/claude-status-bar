@@ -24,8 +24,7 @@ process.stdin.on("end", () => {
   let p = {};
   try { p = JSON.parse(raw || "{}"); } catch {}
 
-  // Optional debug log of every hook invocation (event, tool, message, payload keys).
-  // Off by default; enable with CLAUDE_STATUSBAR_DEBUG=1 to inspect what fires.
+  // Off by default; CLAUDE_STATUSBAR_DEBUG=1 logs every hook invocation to hooks.log.
   if (process.env.CLAUDE_STATUSBAR_DEBUG === "1") {
     try {
       fs.mkdirSync(dir, { recursive: true });
@@ -34,11 +33,8 @@ process.stdin.on("end", () => {
     } catch {}
   }
 
-  // Register this session as active so the app counts it, even for a session that was
-  // already running before the hooks were installed. Such a session never fired its
-  // one-time SessionStart, so lifecycle.js never created its file, but its per-event
-  // hooks (this script) DO fire live. Touching the file here keeps the app alive while
-  // the session works; SessionEnd removes it.
+  // Register the session here too, so a session that predates the hook install (never
+  // fired SessionStart) still gets tracked once it does anything. See CLAUDE.md gotcha.
   const sid = String(p.session_id || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64);
   if (sid) {
     try {
