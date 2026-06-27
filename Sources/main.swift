@@ -236,6 +236,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     lazy var codeGlyphMasks: [NSImage] = codeGlyphs.map { StatusController.glyphMask($0) }
     let crabFPS: Double = 12.5 // matches the source GIF's 0.08s frame delay
     lazy var crabFrames: [NSImage] = StatusController.decodePNGs(clawdCrabFramePNGs)
+    // Template frames: bright pixels (white eyes) become transparent holes so they're
+    // visible as negative space against the menu bar in System color mode.
+    lazy var crabTemplateFrames: [NSImage] = crabFrames.map { StatusController.makeMonoCrab($0) }
     var fps: Double {
         switch animStyle {
         case .web: return spriteFPS
@@ -984,7 +987,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     func iconImage(color: NSColor?, frame: Int) -> NSImage {
         if animStyle == .web { return tint(frames, color: color, frame: frame) }
-        if animStyle == .crab { return crabIcon(frame: frame) }
+        if animStyle == .crab { return crabIcon(color: color, frame: frame) }
         let i = (frame / codeSub) % codeGlyphs.count
         let local = (CGFloat(frame % codeSub) + 0.5) / CGFloat(codeSub) // 0…1 within this glyph
         // Scale envelope per glyph: rise, hold at peak, fall, so each lands before the swap.
@@ -1048,23 +1051,65 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     let logoSet: [NSImage] = Data(base64Encoded: claudeLogoPNG).flatMap(NSImage.init(data:)).map { [$0] } ?? []
     func restingIcon(color: NSColor?) -> NSImage {
-        if animStyle == .crab { return crabIcon(frame: 0) }
+        if animStyle == .crab { return crabIcon(color: color, frame: 0) }
         return tint(logoSet.isEmpty ? frames : logoSet, color: color, frame: 0)
     }
 
-    // Full color (isTemplate=false), so the Orange/System color setting does NOT apply here.
-    func crabIcon(frame: Int) -> NSImage {
+    // Converts a full-color crab frame into a black-on-transparent template by reading
+    // raw bitmap bytes via CGContext (avoids NSColor color-space conversion failures).
+    // Dark pixels (eyes/outlines, lum < 0.2) become transparent holes — visible as
+    // negative space against the menu bar in System color mode.
+    static func makeMonoCrab(_ src: NSImage) -> NSImage {
+        guard let tiff = src.tiffRepresentation,
+              let bmp = NSBitmapImageRep(data: tiff),
+              let cgSrc = bmp.cgImage else { return src }
+        let pw = bmp.pixelsWide, ph = bmp.pixelsHigh
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let bi = CGImageAlphaInfo.premultipliedLast.rawValue
+        guard let inCtx  = CGContext(data: nil, width: pw, height: ph,
+                                      bitsPerComponent: 8, bytesPerRow: pw * 4, space: cs, bitmapInfo: bi),
+              let outCtx = CGContext(data: nil, width: pw, height: ph,
+                                      bitsPerComponent: 8, bytesPerRow: pw * 4, space: cs, bitmapInfo: bi)
+        else { return src }
+        inCtx.draw(cgSrc, in: CGRect(x: 0, y: 0, width: pw, height: ph))
+        guard let inRaw = inCtx.data, let outRaw = outCtx.data else { return src }
+        let inp = inRaw.bindMemory(to: UInt8.self, capacity: pw * ph * 4)
+        let out = outRaw.bindMemory(to: UInt8.self, capacity: pw * ph * 4)
+        for i in 0..<(pw * ph) {
+            let off = i * 4
+            let rawA = inp[off + 3]
+            guard rawA > 0 else { continue } // background stays transparent
+            let af = CGFloat(rawA) / 255
+            let r  = CGFloat(inp[off])     / (255 * af)
+            let g  = CGFloat(inp[off + 1]) / (255 * af)
+            let b  = CGFloat(inp[off + 2]) / (255 * af)
+            let lum = 0.299 * r + 0.587 * g + 0.114 * b
+            // Dark pixels (eyes, outlines, lum < 0.2) → transparent holes visible as
+            // negative space; colored body pixels → opaque black for template rendering.
+            out[off + 3] = lum < 0.2 ? 0 : 255
+        }
+        guard let outCG = outCtx.makeImage() else { return src }
+        let img = NSImage(cgImage: outCG, size: src.size)
+        img.isTemplate = true
+        return img
+    }
+
+    // nil color => adaptive template (System); non-nil => tinted silhouette (Orange).
+    func crabIcon(color: NSColor?, frame: Int) -> NSImage {
         guard !crabFrames.isEmpty else { return NSImage(size: NSSize(width: 18, height: 18)) }
-        let src = crabFrames[frame % crabFrames.count]
+        let pool = color == nil ? crabTemplateFrames : crabFrames
+        let src = pool[frame % pool.count]
         let rep = src.representations.first
         let pw = CGFloat(rep?.pixelsWide ?? Int(src.size.width))
         let ph = CGFloat(rep?.pixelsHigh ?? Int(src.size.height))
         let h: CGFloat = 18, w = (ph > 0 ? h * (pw / ph) : h)
+        // Orange mode: draw the original PNG as-is (preserves black eyes on orange body).
+        // System mode: draw the pre-processed template (dark pixels → transparent holes).
         let img = NSImage(size: NSSize(width: w, height: h), flipped: false) { rect in
             src.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
             return true
         }
-        img.isTemplate = false
+        img.isTemplate = (color == nil)
         return img
     }
 
