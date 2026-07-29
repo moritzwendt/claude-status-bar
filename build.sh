@@ -3,7 +3,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP="build/ClaudeStatusBar.app"
+# 0.4.0: the bundle folder is "Claude Status Bar.app" (matches the cask token claude-status-bar,
+# promised in homebrew-cask PR #274337). The EXECUTABLE stays "ClaudeStatusBar": lifecycle.js
+# pgreps that name and opens by bundle id, and every pkill/dev instruction relies on it, so only
+# the folder name changes.
+APP="build/Claude Status Bar.app"
 BIN="$APP/Contents/MacOS/ClaudeStatusBar"
 
 rm -rf "$APP"
@@ -28,8 +32,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Claude Status Bar</string>
   <key>CFBundleIdentifier</key><string>com.local.claudestatusbar</string>
   <key>CFBundleExecutable</key><string>ClaudeStatusBar</string>
-  <key>CFBundleVersion</key><string>0.3.2</string>
-  <key>CFBundleShortVersionString</key><string>0.3.2</string>
+  <key>CFBundleVersion</key><string>0.4.2</string>
+  <key>CFBundleShortVersionString</key><string>0.4.2</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
@@ -55,8 +59,11 @@ cp assets/completion.mp3 "$APP/Contents/Resources/completion.mp3"
 TEAM_ID="W9JZ4932LA"
 NOTARY_PROFILE="${NOTARY_PROFILE:-claude-statusbar}"
 
+# `|| true` so a missing Developer ID cert (grep matches nothing → nonzero, which `set -eo pipefail`
+# would otherwise treat as a fatal error) falls through to the ad-hoc dev build below instead of
+# aborting the whole script.
 SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
-  | grep "Developer ID Application" | grep "$TEAM_ID" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)"
+  | grep "Developer ID Application" | grep "$TEAM_ID" | head -1 | sed -E 's/.*"(.*)"/\1/')" || true
 
 # Strip extended attributes (Finder info, quarantine, etc.) that bundled resources can
 # carry — codesign rejects them ("resource fork, Finder information, ... not allowed").
@@ -115,7 +122,7 @@ tell application "Finder"
     set arrangement of vo to not arranged
     set icon size of vo to 100
     set text size of vo to 12
-    set position of item "ClaudeStatusBar.app" of container window to {130, 150}
+    set position of item "Claude Status Bar.app" of container window to {130, 150}
     set position of item "Applications" of container window to {350, 150}
     update without registering applications
     delay 1

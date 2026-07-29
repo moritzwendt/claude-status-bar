@@ -5,9 +5,13 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const cp = require("child_process");
 
 const dir = path.join(os.homedir(), ".claude", "statusbar");
 const stateDir = path.join(dir, "state.d");
+// Written by the app's Quit menu item; suppresses the relaunch below so Quit sticks.
+// lifecycle.js removes it on the next SessionStart (a new session = fresh consent).
+const quitMarker = path.join(dir, "quit-intent");
 const event = process.argv[2] || "";
 
 const TOOL_LABELS = {
@@ -43,6 +47,9 @@ process.stdin.on("end", () => {
   try { prev = JSON.parse(fs.readFileSync(statePath, "utf8")); } catch {}
 
   const project = p.cwd ? path.basename(p.cwd) : prev.project || "";
+  // The app reads <cwd>/.git/HEAD for the branch and disambiguates same-named projects by
+  // parent folder; carried over from prev for events whose payload omits cwd.
+  const cwd = p.cwd || prev.cwd || "";
   const ts = Math.floor(Date.now() / 1000);
   let state = "idle", label = "", startedAt = prev.startedAt || 0;
 
@@ -89,11 +96,22 @@ process.stdin.on("end", () => {
   // stable for the session's life, on both CLI and desktop). The app uses kill(pid,0) for liveness.
   // started:true — any update.js event (prompt/tool/permission/stop) is real activity, so the session
   // graduates from "merely opened" to visible in the dropdown. Clicking a conversation never fires here.
-  const out = { state, label, tool: p.tool_name || "", project, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
+  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     const tmp = statePath + "." + process.pid + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(out));
     fs.renameSync(tmp, statePath);
   } catch {}
+
+  // Self-heal: a session with live state but no app to show it relaunches the app. Covers
+  // install-while-a-session-is-already-open (that session never fires SessionStart, the only
+  // other opener) and an app killed/crashed mid-session. Skipped after an explicit menu Quit.
+  try {
+    if (!fs.existsSync(quitMarker)) {
+      cp.execSync("pgrep -x ClaudeStatusBar", { stdio: "ignore" });
+    }
+  } catch {
+    try { cp.spawn("open", ["-g", "-b", "com.local.claudestatusbar"], { stdio: "ignore", detached: true }).unref(); } catch {}
+  }
 });
