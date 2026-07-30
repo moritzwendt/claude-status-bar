@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const installerPath = path.resolve(__dirname, "../hooks/install.js");
 const uninstallerPath = path.resolve(__dirname, "../hooks/uninstall.js");
+const updaterPath = path.resolve(__dirname, "../hooks/update.js");
 const staleNode = "/opt/homebrew/Cellar/node/26.5.0/bin/node";
 const nodePathPrefix =
   'PATH="/opt/homebrew/bin:/usr/local/bin${PATH:+:$PATH}" node ';
@@ -93,6 +94,7 @@ test("installs portable, quoted hook commands and replaces stale hooks", (t) => 
   const commands = statusBarCommands(settings);
   const updatePath = path.join(claudeDir, "statusbar", "update.js");
   const lifecyclePath = path.join(claudeDir, "statusbar", "lifecycle.js");
+  const statuslinePath = path.join(claudeDir, "statusbar", "statusline.js");
 
   assert.equal(settings.customSetting, true);
   assert.equal(fs.existsSync(oldAgentPlist), false);
@@ -102,6 +104,8 @@ test("installs portable, quoted hook commands and replaces stale hooks", (t) => 
   assert.ok(allCommands.every((command) => !command.includes(process.execPath)));
   assert.ok(commands.includes(`${nodePathPrefix}${shellQuote(updatePath)} pre`));
   assert.ok(commands.includes(`${nodePathPrefix}${shellQuote(lifecyclePath)} start`));
+  assert.equal(settings.statusLine.command, `${nodePathPrefix}${shellQuote(statuslinePath)}`);
+  assert.equal(settings.statusLine.refreshInterval, 30);
 
   const lifecycleEnd = commands.find((command) => command.endsWith(" end"));
   const fixtureBin = path.join(home, "minimal-bin");
@@ -156,6 +160,7 @@ test("installs portable, quoted hook commands and replaces stale hooks", (t) => 
   runUninstaller(home);
   const uninstalled = readSettings(home);
   assert.equal(statusBarCommands(uninstalled).length, 0);
+  assert.equal(uninstalled.statusLine, undefined);
   assert.equal(uninstalled.customSetting, true);
   assert.equal(
     uninstalled.hooks.PreToolUse.flatMap((entry) => entry.hooks).filter(
@@ -163,6 +168,119 @@ test("installs portable, quoted hook commands and replaces stale hooks", (t) => 
     ).length,
     1,
   );
+});
+
+test("preserves an existing status line while collecting session metrics", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "claude status line test-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const claudeDir = path.join(home, ".claude");
+  const settingsPath = path.join(claudeDir, "settings.json");
+  const originalStatusLine = {
+    type: "command",
+    command: "printf preserved",
+    padding: 3,
+    refreshInterval: 12,
+  };
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({ statusLine: originalStatusLine }));
+
+  runInstaller(home);
+
+  const installed = readSettings(home);
+  const statuslinePath = path.join(claudeDir, "statusbar", "statusline.js");
+  assert.equal(installed.statusLine.command, `${nodePathPrefix}${shellQuote(statuslinePath)}`);
+  assert.equal(installed.statusLine.padding, 3);
+  assert.equal(installed.statusLine.refreshInterval, 12);
+
+  const input = {
+    session_id: "metrics-session",
+    model: { id: "claude-sonnet-5", display_name: "Sonnet" },
+    effort: { level: "xhigh" },
+    rate_limits: {
+      five_hour: { used_percentage: 34.5, resets_at: 2000000000 },
+      seven_day: { used_percentage: 67.5, resets_at: 2000001000 },
+    },
+  };
+  const output = execFileSync(process.execPath, [statuslinePath], {
+    env: { ...process.env, HOME: home },
+    input: JSON.stringify(input),
+    encoding: "utf8",
+  });
+  assert.equal(output, "preserved");
+
+  const metrics = JSON.parse(fs.readFileSync(
+    path.join(claudeDir, "statusbar", "metrics.d", "metrics-session.json"),
+    "utf8",
+  ));
+  assert.equal(metrics.model, "claude-sonnet-5");
+  assert.equal(metrics.effort, "xhigh");
+  assert.equal(metrics.fiveHourUsed, 34.5);
+  assert.equal(metrics.weeklyUsed, 67.5);
+
+  runUninstaller(home);
+  assert.deepEqual(readSettings(home).statusLine, originalStatusLine);
+});
+
+test("stores model and effort from hook input", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "claude model effort test-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const statusbarDir = path.join(home, ".claude", "statusbar");
+  fs.mkdirSync(statusbarDir, { recursive: true });
+  fs.writeFileSync(path.join(statusbarDir, "quit-intent"), "");
+  execFileSync(process.execPath, [updaterPath, "pre"], {
+    env: { ...process.env, HOME: home },
+    input: JSON.stringify({
+      session_id: "hook-session",
+      cwd: home,
+      transcript_path: "",
+      tool_name: "Read",
+      model: { id: "claude-opus-5", display_name: "Opus" },
+      effort: { level: "high" },
+    }),
+    stdio: "pipe",
+  });
+
+  const state = JSON.parse(fs.readFileSync(
+    path.join(statusbarDir, "state.d", "hook-session.json"),
+    "utf8",
+  ));
+  assert.equal(state.model, "claude-opus-5");
+  assert.equal(state.modelDisplay, "Opus");
+  assert.equal(state.effort, "high");
+});
+
+test("reads model and effort from the session transcript", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "claude transcript metadata test-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  const statusbarDir = path.join(home, ".claude", "statusbar");
+  const transcriptPath = path.join(home, "session.jsonl");
+  fs.mkdirSync(statusbarDir, { recursive: true });
+  fs.writeFileSync(path.join(statusbarDir, "quit-intent"), "");
+  fs.writeFileSync(transcriptPath, JSON.stringify({
+    type: "assistant",
+    effort: "max",
+    message: { model: "claude-fable-5" },
+  }) + "\n");
+
+  execFileSync(process.execPath, [updaterPath, "stop"], {
+    env: { ...process.env, HOME: home },
+    input: JSON.stringify({
+      session_id: "transcript-session",
+      cwd: home,
+      transcript_path: transcriptPath,
+    }),
+    stdio: "pipe",
+  });
+
+  const state = JSON.parse(fs.readFileSync(
+    path.join(statusbarDir, "state.d", "transcript-session.json"),
+    "utf8",
+  ));
+  assert.equal(state.model, "claude-fable-5");
+  assert.equal(state.effort, "max");
 });
 
 test("reinstalling is idempotent", (t) => {

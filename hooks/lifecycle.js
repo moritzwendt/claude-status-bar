@@ -10,9 +10,11 @@ const BUNDLE_ID = "com.local.claudestatusbar";
 const EXEC = "ClaudeStatusBar";
 const dir = path.join(os.homedir(), ".claude", "statusbar");
 const stateDir = path.join(dir, "state.d");
+const metricsDir = path.join(dir, "metrics.d");
 const event = process.argv[2];
 
 fs.mkdirSync(stateDir, { recursive: true });
+fs.mkdirSync(metricsDir, { recursive: true });
 
 const running = () => { try { cp.execSync(`pgrep -x ${EXEC}`, { stdio: "ignore" }); return true; } catch { return false; } };
 const safeId = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "unknown";
@@ -31,29 +33,40 @@ setTimeout(run, 1000); // hooks always pipe stdin, but never hang the session
 
 function run() {
   if (done) return; done = true;
-  let id = "", cwd = "";
-  try { const j = JSON.parse(input); id = j.session_id; cwd = j.cwd || ""; } catch {}
+  let id = "", cwd = "", model = "", effort = "";
+  try {
+    const j = JSON.parse(input);
+    id = j.session_id;
+    cwd = j.cwd || "";
+    model = typeof j.model === "string" ? j.model : j.model?.id || "";
+    effort = j.effort?.level || "";
+  } catch {}
   id = safeId(id);
   const statePath = path.join(stateDir, id + ".json");
+  const metricsPath = path.join(metricsDir, id + ".json");
 
   if (event === "start") {
     // A new session voids a prior explicit Quit (see update.js's self-relaunch suppress).
     try { fs.rmSync(path.join(dir, "quit-intent"), { force: true }); } catch {}
     // If the app isn't running, any leftover session files are stale (e.g. a prior
     // crash) — clear them so the count starts honest.
-    if (!running()) { try { for (const f of fs.readdirSync(stateDir)) fs.rmSync(path.join(stateDir, f), { force: true }); } catch {} }
+    if (!running()) {
+      try { for (const f of fs.readdirSync(stateDir)) fs.rmSync(path.join(stateDir, f), { force: true }); } catch {}
+      try { for (const f of fs.readdirSync(metricsDir)) fs.rmSync(path.join(metricsDir, f), { force: true }); } catch {}
+    }
     // Seed an idle file: counts the session immediately, and clears any frozen state from a
     // resume (SessionStart fires on resume with no active turn).
     try {
       // started:false — a merely-opened conversation seeds this for launch + liveness but stays out of
       // the dropdown until it has real activity (update.js flips started:true on a prompt/tool).
-      writeAtomic(statePath, { state: "idle", label: "", tool: "", project: cwd ? path.basename(cwd) : "", cwd, sessionId: id, transcript: "", entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT || "", term_program: process.env.TERM_PROGRAM || "", pid: process.ppid, started: false, startedAt: 0, ts: Math.floor(Date.now() / 1000) });
+      writeAtomic(statePath, { state: "idle", label: "", tool: "", project: cwd ? path.basename(cwd) : "", cwd, sessionId: id, transcript: "", model, modelDisplay: "", effort, entrypoint: process.env.CLAUDE_CODE_ENTRYPOINT || "", term_program: process.env.TERM_PROGRAM || "", pid: process.ppid, started: false, startedAt: 0, ts: Math.floor(Date.now() / 1000) });
     } catch {}
     cp.spawn("open", ["-g", "-b", BUNDLE_ID], { stdio: "ignore", detached: true }).unref();
   } else if (event === "end") {
     // Removing the file drops this session from the aggregate — this is also what recovers a
     // frozen animation on force-quit (SessionEnd fires, but no Stop). No state rewrite needed.
     try { fs.rmSync(statePath, { force: true }); } catch {}
+    try { fs.rmSync(metricsPath, { force: true }); } catch {}
   }
   process.exit(0);
 }

@@ -3,6 +3,16 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] 2026 07 30
+
+### Added
+
+Each session now shows its active model and reasoning effort on a second line. A compact Usage section shows shared five hour and weekly consumption with reset times.
+
+### Changed
+
+The menu is slightly wider to keep the additional session details readable. The installer adds a local metrics collector while preserving and forwarding any existing custom Claude Code status line.
+
 ## [0.4.2] - 2026-07-29
 
 ### Fixed
@@ -152,6 +162,7 @@ All notable changes to Claude Status Bar are documented here. This project follo
 - Claude Code plugin marketplace manifest for the plugin install path.
 
 [0.4.2]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.2
+[0.5.0]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.5.0
 [0.4.0]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.0
 [0.3.4]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.3.4
 [0.3.3]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.3.3

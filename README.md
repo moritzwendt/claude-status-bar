@@ -4,6 +4,10 @@ A tiny macOS menu bar app that shows **Claude Code's live status**: an animated 
 
 Built so you can tab away during a long "thinking" stretch and still see, at a glance, whether Claude is working, waiting on you, or done.
 
+## Personal fork
+
+This repository is my personal fork, maintained for my own use and requirements. I will continue to bring in selected updates from the `upstream` branch, but changes made here are not intended to be submitted upstream through pull requests. All further development in this fork is tailored to my own workflow and needs.
+
 <img width="480" height="383" alt="Screen Recording 2026-07-10 at 12 32 23 AM" src="https://github.com/user-attachments/assets/f5d77b7c-f41d-4276-b28f-e1cf655fd323" />
 
 ## Install

@@ -23,6 +23,28 @@ const TOOL_LABELS = {
 
 const safeId = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 64) || "unknown";
 
+const transcriptMetadata = (transcriptPath) => {
+  if (!transcriptPath) return {};
+  try {
+    const fd = fs.openSync(transcriptPath, "r");
+    const size = fs.fstatSync(fd).size;
+    const length = Math.min(size, 262144);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, size - length);
+    fs.closeSync(fd);
+    const lines = buffer.toString("utf8").split("\n").reverse();
+    for (const line of lines) {
+      if (!line.includes('"type":"assistant"')) continue;
+      let row;
+      try { row = JSON.parse(line); } catch { continue; }
+      const model = row.message?.model || row.model || "";
+      const effort = row.effort || row.message?.effort || "";
+      if (model || effort) return { model, effort };
+    }
+  } catch {}
+  return {};
+};
+
 let raw = "";
 process.stdin.on("data", (d) => (raw += d));
 process.stdin.on("end", () => {
@@ -92,11 +114,17 @@ process.stdin.on("end", () => {
   // TERM_PROGRAM identifies the terminal app for a CLI session (Apple_Terminal, iTerm.app,
   // vscode, WezTerm, …); the app uses it to bring that terminal to the front on a row click.
   const termProgram = process.env.TERM_PROGRAM || prev.term_program || "";
+  const transcript = p.transcript_path || prev.transcript || "";
+  const transcriptValues = transcriptMetadata(transcript);
+  const payloadModel = typeof p.model === "string" ? p.model : p.model?.id || "";
+  const model = payloadModel || transcriptValues.model || prev.model || "";
+  const modelDisplay = p.model?.display_name || prev.modelDisplay || "";
+  const effort = p.effort?.level || transcriptValues.effort || prev.effort || "";
   // process.ppid IS this session's `claude` process (verified: hooks are spawned directly by it,
   // stable for the session's life, on both CLI and desktop). The app uses kill(pid,0) for liveness.
   // started:true — any update.js event (prompt/tool/permission/stop) is real activity, so the session
   // graduates from "merely opened" to visible in the dropdown. Clicking a conversation never fires here.
-  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript: p.transcript_path || prev.transcript || "", entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
+  const out = { state, label, tool: p.tool_name || "", project, cwd, sessionId: p.session_id || "", transcript, model, modelDisplay, effort, entrypoint, term_program: termProgram, pid: process.ppid, started: true, startedAt, ts };
   try {
     fs.mkdirSync(stateDir, { recursive: true });
     const tmp = statePath + "." + process.pid + ".tmp";

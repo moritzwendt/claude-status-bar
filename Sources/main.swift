@@ -105,14 +105,15 @@ final class SessionRowView: NSView {
     private let iconView = NSImageView()
     private let spinner = NSProgressIndicator()
     private let nameField = NSTextField(labelWithString: "")
+    private let detailsField = NSTextField(labelWithString: "")
     private let timerField = NSTextField(labelWithString: "")
     private let pillView = NSImageView()
-    private let pad: CGFloat = 14, iconSize: CGFloat = 16, rowH: CGFloat = 24
+    private let pad: CGFloat = 14, iconSize: CGFloat = 16, rowH: CGFloat = 38
     private let highlightView = NSVisualEffectView()  // system selection material = exact native highlight
     private var hovered = false
     private var iconBaseTint: NSColor?       // tint when not hovered (template icons); white on hover
     private var pillNormal: NSImage?, pillSelected: NSImage?
-    private var nameText = "", branchText = ""
+    private var nameText = "", branchText = "", detailsText = ""
 
     init(id: String, width: CGFloat) {
         self.id = id
@@ -141,9 +142,15 @@ final class SessionRowView: NSView {
         nameField.font = .menuFont(ofSize: 0)
         nameField.textColor = .labelColor
         nameField.lineBreakMode = .byTruncatingTail
-        nameField.frame = NSRect(x: pad + iconSize + 8, y: (rowH - 16) / 2, width: 160, height: 16)
+        nameField.frame = NSRect(x: pad + iconSize + 8, y: 19, width: 160, height: 16)
         nameField.autoresizingMask = [.maxXMargin]
         addSubview(nameField)
+        detailsField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        detailsField.textColor = .secondaryLabelColor
+        detailsField.lineBreakMode = .byTruncatingTail
+        detailsField.frame = NSRect(x: pad + iconSize + 8, y: 3, width: 160, height: 15)
+        detailsField.autoresizingMask = [.maxXMargin]
+        addSubview(detailsField)
         timerField.font = NSFont.monospacedSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular)
         timerField.textColor = .secondaryLabelColor
         timerField.alignment = .right
@@ -155,7 +162,7 @@ final class SessionRowView: NSView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func configure(icon: NSImage?, iconTint: NSColor?, spinning: Bool, name: String, branch: String, timer: String?,
+    func configure(icon: NSImage?, iconTint: NSColor?, spinning: Bool, name: String, branch: String, timer: String?, details: String,
                    pillNormal: NSImage?, pillSelected: NSImage?, pillInset: CGFloat, timerGap: CGFloat) {
         let w = bounds.width
         iconView.image = icon
@@ -170,15 +177,16 @@ final class SessionRowView: NSView {
             spinner.isHidden = true
             iconView.isHidden = false
         }
-        nameText = name; branchText = branch
+        nameText = name; branchText = branch; detailsText = details
         renderName()
+        renderDetails()
         self.pillNormal = pillNormal; self.pillSelected = pillSelected
         let pill = hovered ? pillSelected : pillNormal
         var pillLeft = w - pillInset
         if let pill = pill {
             pillView.isHidden = false
             pillView.image = pill
-            pillView.frame = NSRect(x: w - pillInset - pill.size.width, y: (rowH - pill.size.height) / 2,
+            pillView.frame = NSRect(x: w - pillInset - pill.size.width, y: 20.5 - pill.size.height / 2,
                                     width: pill.size.width, height: pill.size.height)
             pillLeft = pillView.frame.minX
         } else { pillView.isHidden = true }
@@ -189,14 +197,13 @@ final class SessionRowView: NSView {
             // column reserved ~50pt of blank space that pixel-truncated the name · branch next to it.
             let font = timerField.font ?? NSFont.monospacedSystemFont(ofSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular)
             let tw = ceil(timer.size(withAttributes: [.font: font]).width) + 2
-            // Same point size and same box (y/height) as the name field, so the timer sits on the name's
-            // baseline instead of floating at the row's vertical center.
             timerField.frame = NSRect(x: pillLeft - timerGap - tw, y: (rowH - 16) / 2, width: tw, height: 16)
         } else { timerField.isHidden = true }
         // Name stretches to whatever the timer/pill leave free (branch text made the fixed 160 tight);
         // pixel truncation via the paragraph style handles overflow.
         let nameRight = timer != nil ? timerField.frame.minX : pillLeft
         nameField.frame.size.width = max(40, nameRight - timerGap - nameField.frame.minX)
+        detailsField.frame.size.width = max(40, pillLeft - timerGap - detailsField.frame.minX)
     }
     // name in the label color, " · branch" dimmed — mirrored on hover, where setting textColor
     // can't restyle an attributed string.
@@ -220,6 +227,10 @@ final class SessionRowView: NSView {
         }
         nameField.attributedStringValue = text
     }
+    private func renderDetails() {
+        detailsField.stringValue = detailsText
+        detailsField.textColor = hovered ? NSColor.white.withAlphaComponent(0.78) : .secondaryLabelColor
+    }
     // Custom views don't get the menu's automatic hover highlight, so draw it ourselves.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -232,6 +243,7 @@ final class SessionRowView: NSView {
         hovered = h
         highlightView.isHidden = !h
         renderName()
+        renderDetails()
         timerField.textColor = h ? .white : .secondaryLabelColor
         iconView.contentTintColor = h ? .white : iconBaseTint
         if !pillView.isHidden { pillView.image = h ? pillSelected : pillNormal }
@@ -241,6 +253,58 @@ final class SessionRowView: NSView {
         highlightView.frame = bounds.insetBy(dx: 5, dy: 0)
     }
     override func mouseDown(with event: NSEvent) { onClick?() }
+}
+
+struct UsageWindowValue {
+    let title: String
+    let used: Double
+    let reset: String
+}
+
+final class UsageView: NSView {
+    let values: [UsageWindowValue]
+    let tint: NSColor
+    let pad: CGFloat = 14
+    let rowHeight: CGFloat = 30
+
+    init(values: [UsageWindowValue], width: CGFloat, tint: NSColor) {
+        self.values = values
+        self.tint = tint
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: CGFloat(values.count) * rowHeight + 4))
+        autoresizingMask = [.width]
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let titleFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        let metaFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        let percentFont = NSFont.monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        for (index, value) in values.enumerated() {
+            let top = bounds.height - 4 - CGFloat(index) * rowHeight
+            let title = value.title as NSString
+            let titleAttributes: [NSAttributedString.Key: Any] = [.font: titleFont, .foregroundColor: NSColor.labelColor]
+            let titleSize = title.size(withAttributes: titleAttributes)
+            title.draw(at: NSPoint(x: pad, y: top - 15), withAttributes: titleAttributes)
+            if !value.reset.isEmpty {
+                let reset = " · " + value.reset
+                (reset as NSString).draw(at: NSPoint(x: pad + titleSize.width, y: top - 15),
+                                         withAttributes: [.font: metaFont, .foregroundColor: NSColor.secondaryLabelColor])
+            }
+            let percent = String(format: "%.0f%%", value.used) as NSString
+            let percentAttributes: [NSAttributedString.Key: Any] = [.font: percentFont, .foregroundColor: NSColor.labelColor]
+            let percentSize = percent.size(withAttributes: percentAttributes)
+            percent.draw(at: NSPoint(x: bounds.width - pad - percentSize.width, y: top - 15), withAttributes: percentAttributes)
+            let track = NSRect(x: pad, y: top - 23, width: bounds.width - pad * 2, height: 4)
+            NSColor.separatorColor.withAlphaComponent(0.45).setFill()
+            NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2).fill()
+            let fillWidth = track.width * min(100, max(0, value.used)) / 100
+            let filled = NSRect(x: track.minX, y: track.minY, width: fillWidth, height: track.height)
+            tint.setFill()
+            NSBezierPath(roundedRect: filled, xRadius: 2, yRadius: 2).fill()
+        }
+    }
 }
 
 // Custom view for the same reason as SessionRowView (a trailing-edge icon needs a flexible
@@ -315,6 +379,8 @@ final class CopyRowView: NSView {
 final class StatusController: NSObject, NSMenuDelegate {
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let stateDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/state.d")
+    let metricsDir = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/metrics.d")
+    let usagePath = (NSHomeDirectory() as NSString).appendingPathComponent(".claude/statusbar/usage.json")
     let claudeDesktopBundleID = "com.anthropic.claudefordesktop"
 
     var pollTimer: Timer?
@@ -332,6 +398,7 @@ final class StatusController: NSObject, NSMenuDelegate {
 
     struct Session {
         var id: String, state: String, label: String, project: String, transcript: String
+        var model: String, modelDisplay: String, reasoningEffort: String
         var cwd: String         // session working directory; "" on pre-upgrade files
         var entrypoint: String  // CLAUDE_CODE_ENTRYPOINT: "cli", "claude-desktop", …
         var termProgram: String // TERM_PROGRAM for CLI sessions: "Apple_Terminal", "iTerm.app", …
@@ -349,6 +416,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             self.label = o["label"] as? String ?? ""
             self.project = o["project"] as? String ?? ""
             self.transcript = o["transcript"] as? String ?? ""
+            self.model = o["model"] as? String ?? ""
+            self.modelDisplay = o["modelDisplay"] as? String ?? ""
+            self.reasoningEffort = o["effort"] as? String ?? ""
             self.cwd = o["cwd"] as? String ?? ""
             self.entrypoint = o["entrypoint"] as? String ?? ""
             self.termProgram = o["term_program"] as? String ?? ""
@@ -358,7 +428,14 @@ final class StatusController: NSObject, NSMenuDelegate {
             self.ts = (o["ts"] as? NSNumber)?.doubleValue ?? 0
         }
     }
+    struct UsageSnapshot {
+        var fiveHourUsed: Double?
+        var fiveHourResetsAt: Double?
+        var weeklyUsed: Double?
+        var weeklyResetsAt: Double?
+    }
     var sessions: [String: Session] = [:]  // id -> latest parsed per-session state
+    var usageSnapshot: UsageSnapshot?
     var fileMTimes: [String: Date] = [:]   // "<id>.json" -> last-parsed mtime (re-parse only on change)
     var gitHeadCache: [String: String] = [:]  // cwd -> resolved HEAD path ("" = confirmed non-git)
     var prevState: [String: String] = [:]  // id -> previous raw state per session
@@ -656,7 +733,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             menu.addItem(header("Sessions"))
             for s in visible {
                 let eff = s.eff.isEmpty ? effectiveState(s, now: now) : s.eff
-                let view = SessionRowView(id: s.id, width: CGFloat(uiConfig()["boxWidth"] ?? 300))
+                let view = SessionRowView(id: s.id, width: CGFloat(uiConfig()["boxWidth"] ?? 320))
                 let sid = s.id, ep = s.entrypoint, tp = s.termProgram, cwd = s.cwd, spid = s.pid
                 view.onClick = { [weak self] in menu.cancelTracking(); self?.openSession(sid, entrypoint: ep, termProgram: tp, cwd: cwd, pid: spid) }
                 configureSessionRow(view, s, eff: eff)
@@ -728,10 +805,18 @@ final class StatusController: NSObject, NSMenuDelegate {
         soundParent.submenu = soundSub
         menu.addItem(soundParent)
 
+        let usageRows = usageValues()
+        if !usageRows.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(header("Usage"))
+            let item = NSMenuItem()
+            item.view = UsageView(values: usageRows, width: CGFloat(uiConfig()["boxWidth"] ?? 320), tint: brand)
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Version \(currentVersion)", action: nil, keyEquivalent: ""))
         if let latest = UserDefaults.standard.string(forKey: "latestVersion"), versionIsNewer(latest, than: currentVersion) {
-            let width = CGFloat(uiConfig()["boxWidth"] ?? 300)
+            let width = CGFloat(uiConfig()["boxWidth"] ?? 320)
             let brewVer = UserDefaults.standard.string(forKey: "brewCaskVersion")
             if brewManaged {
                 // Silent until the cask catches up (autobump lag): never offer a command that
@@ -764,7 +849,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func toggleRow(title: String, qualifier: String? = nil, isOn: Bool, onToggle: @escaping (Bool) -> Void) -> NSMenuItem {
-        let width = CGFloat(uiConfig()["boxWidth"] ?? 300), height: CGFloat = 24, leftInset: CGFloat = 14, rightInset: CGFloat = 12
+        let width = CGFloat(uiConfig()["boxWidth"] ?? 320), height: CGFloat = 24, leftInset: CGFloat = 14, rightInset: CGFloat = 12
         let row = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         row.autoresizingMask = [.width]
 
@@ -839,6 +924,7 @@ final class StatusController: NSObject, NSMenuDelegate {
                     name: truncated(sessionName(s), max: nameMax, keep: nameMax),
                     branch: truncated(s.branch, max: 22, keep: 20),
                     timer: working ? elapsed(max(0, Int(now - s.startedAt))) : nil,
+                    details: sessionDetails(s),
                     pillNormal: tag.isEmpty ? nil : pillImage(tag),
                     pillSelected: tag.isEmpty ? nil : pillImage(tag, selected: true),
                     pillInset: CGFloat(cfg["pillInset"] ?? 12),
@@ -846,8 +932,50 @@ final class StatusController: NSObject, NSMenuDelegate {
         // Truncated rows stay inspectable: full name, branch, and path on hover.
         var tip = sessionName(s)
         if !s.branch.isEmpty { tip += " · " + s.branch }
+        tip += "\n" + sessionDetails(s)
         if !s.cwd.isEmpty { tip += "\n" + s.cwd }
         v.toolTip = tip
+    }
+
+    func sessionDetails(_ s: Session) -> String {
+        var parts: [String] = []
+        let model = modelLabel(s)
+        if !model.isEmpty { parts.append(model) }
+        if !s.reasoningEffort.isEmpty { parts.append(s.reasoningEffort + " effort") }
+        return parts.isEmpty ? "Model details pending" : parts.joined(separator: " · ")
+    }
+
+    func modelLabel(_ s: Session) -> String {
+        if s.model.hasPrefix("claude-") {
+            let parts = s.model.dropFirst(7).split(separator: "-")
+            guard let family = parts.first else { return s.modelDisplay }
+            let version = parts.dropFirst().filter { !($0.count == 8 && $0.allSatisfy(\.isNumber)) }.joined(separator: ".")
+            return version.isEmpty ? family.capitalized : family.capitalized + " " + version
+        }
+        return s.modelDisplay.isEmpty ? s.model : s.modelDisplay
+    }
+
+    func usageValues() -> [UsageWindowValue] {
+        guard let usage = usageSnapshot else { return [] }
+        let now = Date().timeIntervalSince1970
+        var values: [UsageWindowValue] = []
+        if let used = usage.fiveHourUsed,
+           usage.fiveHourResetsAt.map({ $0 > now }) ?? true {
+            values.append(UsageWindowValue(title: "5 hour", used: used, reset: usageResetText(usage.fiveHourResetsAt, weekly: false)))
+        }
+        if let used = usage.weeklyUsed,
+           usage.weeklyResetsAt.map({ $0 > now }) ?? true {
+            values.append(UsageWindowValue(title: "Weekly", used: used, reset: usageResetText(usage.weeklyResetsAt, weekly: true)))
+        }
+        return values
+    }
+
+    func usageResetText(_ timestamp: Double?, weekly: Bool) -> String {
+        guard let timestamp else { return "" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.dateFormat = weekly ? "EEE HH:mm" : "HH:mm"
+        return "resets " + formatter.string(from: Date(timeIntervalSince1970: timestamp))
     }
 
     func statusText(_ s: Session, eff: String) -> String {
@@ -1124,6 +1252,32 @@ final class StatusController: NSObject, NSMenuDelegate {
             s.branch = branchForCwd(s.cwd)   // only on file change (a hook event), never on a bare tick
             sessions[id] = s
         }
+        reloadMetrics()
+    }
+
+    func reloadMetrics() {
+        let fm = FileManager.default
+        for id in Array(sessions.keys) {
+            let path = (metricsDir as NSString).appendingPathComponent(id + ".json")
+            guard let data = fm.contents(atPath: path),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  var session = sessions[id] else { continue }
+            if let model = object["model"] as? String, !model.isEmpty { session.model = model }
+            if let display = object["modelDisplay"] as? String, !display.isEmpty { session.modelDisplay = display }
+            if let effort = object["effort"] as? String, !effort.isEmpty { session.reasoningEffort = effort }
+            sessions[id] = session
+        }
+        guard let data = fm.contents(atPath: usagePath),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            usageSnapshot = nil
+            return
+        }
+        usageSnapshot = UsageSnapshot(
+            fiveHourUsed: (object["fiveHourUsed"] as? NSNumber)?.doubleValue,
+            fiveHourResetsAt: (object["fiveHourResetsAt"] as? NSNumber)?.doubleValue,
+            weeklyUsed: (object["weeklyUsed"] as? NSNumber)?.doubleValue,
+            weeklyResetsAt: (object["weeklyResetsAt"] as? NSNumber)?.doubleValue
+        )
     }
 
     // MARK: git branch (no `git` spawn — .git/HEAD is a tiny text file)

@@ -13,6 +13,8 @@ const sbDir = path.join(home, ".claude", "statusbar");
 const MARKER = sbDir; // every hook command we add points inside this dir
 const updateDest = path.join(sbDir, "update.js");
 const lifecycleDest = path.join(sbDir, "lifecycle.js");
+const statuslineDest = path.join(sbDir, "statusline.js");
+const statuslineOriginalPath = path.join(sbDir, "statusline-original.json");
 const settingsPath = path.join(home, ".claude", "settings.json");
 
 // Retire the old 0.0.2 background watcher LaunchAgent on upgrade (0.0.3+ self-quits).
@@ -28,6 +30,7 @@ fs.rmSync(path.join(sbDir, "state.json"), { force: true });
 fs.rmSync(path.join(sbDir, "sessions.d"), { recursive: true, force: true });
 fs.copyFileSync(path.join(__dirname, "update.js"), updateDest);
 fs.copyFileSync(path.join(__dirname, "lifecycle.js"), lifecycleDest);
+fs.copyFileSync(path.join(__dirname, "statusline.js"), statuslineDest);
 
 const shellQuote = (value) => `'${value.replace(/'/g, `'\\''`)}'`;
 const quotedMarkerPrefix = shellQuote(MARKER).slice(0, -1);
@@ -37,6 +40,8 @@ const cmd = (evt) =>
   `PATH="/opt/homebrew/bin:/usr/local/bin\${PATH:+:$PATH}" node ${shellQuote(updateDest)} ${evt}`;
 const life = (evt) =>
   `PATH="/opt/homebrew/bin:/usr/local/bin\${PATH:+:$PATH}" node ${shellQuote(lifecycleDest)} ${evt}`;
+const statuslineCommand =
+  `PATH="/opt/homebrew/bin:/usr/local/bin\${PATH:+:$PATH}" node ${shellQuote(statuslineDest)}`;
 
 let settings = {};
 if (fs.existsSync(settingsPath)) {
@@ -45,6 +50,27 @@ if (fs.existsSync(settingsPath)) {
   if (!fs.existsSync(bak)) fs.copyFileSync(settingsPath, bak);
 }
 settings.hooks = settings.hooks || {};
+
+const currentStatusline = settings.statusLine;
+const currentStatuslineIsOurs =
+  currentStatusline && isOurs(currentStatusline.command || "");
+if (!currentStatuslineIsOurs) {
+  fs.writeFileSync(statuslineOriginalPath, JSON.stringify({
+    present: Boolean(currentStatusline),
+    value: currentStatusline || null,
+  }));
+}
+let originalStatusline = null;
+try {
+  const saved = JSON.parse(fs.readFileSync(statuslineOriginalPath, "utf8"));
+  if (saved.present) originalStatusline = saved.value;
+} catch {}
+settings.statusLine = {
+  ...(originalStatusline || {}),
+  type: "command",
+  command: statuslineCommand,
+};
+if (!originalStatusline) settings.statusLine.refreshInterval = 30;
 
 const stripOurs = (arr) =>
   (arr || [])
@@ -76,5 +102,5 @@ addUnmatched("SessionEnd", life("end"));
 
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log("Installed status-bar hooks into", settingsPath);
-console.log("Scripts:", updateDest, "and", lifecycleDest);
+console.log("Scripts:", updateDest, lifecycleDest, "and", statuslineDest);
 console.log("Backup (first run only):", settingsPath + ".bak-statusbar");

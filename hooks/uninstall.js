@@ -13,6 +13,7 @@ const quotedMarkerPrefix = shellQuote(MARKER).slice(0, -1);
 const isOurs = (command) =>
   command.includes(MARKER) || command.includes(quotedMarkerPrefix);
 const settingsPath = path.join(home, ".claude", "settings.json");
+const statuslineOriginalPath = path.join(MARKER, "statusline-original.json");
 
 // Tear down the desktop watcher LaunchAgent (best-effort; safe if absent).
 const AGENT_LABEL = "com.local.claudestatusbar.watcher";
@@ -30,5 +31,12 @@ for (const evt of Object.keys(settings.hooks || {})) {
     .filter((e) => (e.hooks || []).length > 0);
   if (settings.hooks[evt].length === 0) delete settings.hooks[evt];
 }
+if (settings.statusLine && isOurs(settings.statusLine.command || "")) {
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(statuslineOriginalPath, "utf8")); } catch {}
+  if (saved.present) settings.statusLine = saved.value;
+  else delete settings.statusLine;
+}
+try { fs.rmSync(statuslineOriginalPath, { force: true }); } catch {}
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
 console.log("Removed status-bar hooks from", settingsPath);
