@@ -1162,6 +1162,13 @@ final class StatusController: NSObject, NSMenuDelegate {
         return resolved
     }
 
+    func runningApplication(named name: String) -> NSRunningApplication? {
+        NSWorkspace.shared.runningApplications.first {
+            $0.localizedName == name ||
+            $0.bundleURL?.deletingPathExtension().lastPathComponent == name
+        }
+    }
+
     // CLI session: bring its terminal APP to the front (zero permission). Targeting the exact
     // window/tab needs a one-time Automation grant, deferred to the opt-in build (issue #19).
     func openSession(_ id: String, entrypoint: String, termProgram: String, cwd: String, pid: Int32) {
@@ -1183,6 +1190,10 @@ final class StatusController: NSObject, NSMenuDelegate {
             }
         }
         guard let app else { return }
+        if focusesProject, let running = runningApplication(named: app) {
+            running.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            return
+        }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = (focusesProject && !cwd.isEmpty) ? ["-a", app, cwd] : ["-a", app]
