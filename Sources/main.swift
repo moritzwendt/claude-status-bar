@@ -451,8 +451,9 @@ final class StatusController: NSObject, NSMenuDelegate {
     let spriteFPS: Double = 9 // tune: 8 frames per loop -> ~0.9s/cycle
 
     enum AnimStyle: String { case web, code, crab }
+    enum TimerDisplay: String { case off, full, minutes }
     var animStyle: AnimStyle = .web
-    var showTimer = false
+    var timerDisplay: TimerDisplay = .off
     var showStatusText = true // show the "Thinking…"/"Running Code"/etc. label; off = icon (+ timer) only
     var iconSystem = false // false = brand Orange; true = adaptive black/white (template image)
     var useThinkingWords = true     // rotate a playful verb ("Manifesting…") in place of "Thinking…"
@@ -522,7 +523,11 @@ final class StatusController: NSObject, NSMenuDelegate {
     override init() {
         super.init()
         let d = UserDefaults.standard
-        if d.object(forKey: "showTimer") != nil { showTimer = d.bool(forKey: "showTimer") }
+        if let raw = d.string(forKey: "timerDisplay"), let display = TimerDisplay(rawValue: raw) {
+            timerDisplay = display
+        } else if d.object(forKey: "showTimer") != nil {
+            timerDisplay = d.bool(forKey: "showTimer") ? .full : .off
+        }
         if d.object(forKey: "showStatusText") != nil { showStatusText = d.bool(forKey: "showStatusText") }
         if d.object(forKey: "iconSystem") != nil { iconSystem = d.bool(forKey: "iconSystem") }
         if d.object(forKey: "thinkingWords") != nil { useThinkingWords = d.bool(forKey: "thinkingWords") }
@@ -753,11 +758,17 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(header("Options"))
-        menu.addItem(toggleRow(title: "Show timer", isOn: showTimer) { [weak self] on in
-            self?.showTimer = on
-            UserDefaults.standard.set(on, forKey: "showTimer")
-            self?.applyTitle()
-        })
+        let timerParent = NSMenuItem(title: "Timer", action: nil, keyEquivalent: "")
+        let timerSub = NSMenu()
+        for (display, name) in [(TimerDisplay.off, "Off"), (.full, "On"), (.minutes, "Without seconds")] {
+            let item = NSMenuItem(title: name, action: #selector(chooseTimer(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = display.rawValue
+            item.state = timerDisplay == display ? .on : .off
+            timerSub.addItem(item)
+        }
+        timerParent.submenu = timerSub
+        menu.addItem(timerParent)
         menu.addItem(toggleRow(title: "Show status text", isOn: showStatusText) { [weak self] on in
             self?.showStatusText = on
             UserDefaults.standard.set(on, forKey: "showStatusText")
@@ -1102,6 +1113,16 @@ final class StatusController: NSObject, NSMenuDelegate {
         return m > 0 ? "\(m)m \(s)s" : "\(s)s"
     }
 
+    func timerText(_ secs: Int) -> String? {
+        switch timerDisplay {
+        case .off: return nil
+        case .full: return elapsed(secs)
+        case .minutes:
+            let minutes = secs / 60
+            return minutes > 0 ? "\(minutes)m" : "<1m"
+        }
+    }
+
     // The marker keeps update.js's self-relaunch from undoing an explicit Quit; cleared on the
     // next SessionStart (lifecycle.js) or the next manual launch (below), whichever comes first.
     @objc func quit() {
@@ -1206,6 +1227,15 @@ final class StatusController: NSObject, NSMenuDelegate {
         iconSystem = sys
         UserDefaults.standard.set(iconSystem, forKey: "iconSystem")
         evaluate() // re-render the current state in the new color
+    }
+
+    @objc func chooseTimer(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let display = TimerDisplay(rawValue: raw) else { return }
+        timerDisplay = display
+        UserDefaults.standard.set(raw, forKey: "timerDisplay")
+        applyTitle()
+        refreshOpenMenuRows()
     }
 
     @objc func chooseSound(_ sender: NSMenuItem) {
@@ -1525,8 +1555,8 @@ final class StatusController: NSObject, NSMenuDelegate {
     func applyTitle() {
         guard let button = statusItem.button else { return }
         var text = showStatusText ? activeBase : ""
-        if showTimer, startedAt > 0 {
-            let clock = elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
+        if startedAt > 0,
+           let clock = timerText(max(0, Int(Date().timeIntervalSince1970 - startedAt))) {
             text = text.isEmpty ? clock : text + "  " + clock
         }
         if text.isEmpty {
