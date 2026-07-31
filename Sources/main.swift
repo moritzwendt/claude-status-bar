@@ -259,6 +259,8 @@ struct UsageWindowValue {
     let title: String
     let used: Double
     let reset: String
+    let resetsAt: Double?
+    let showsRemaining: Bool
 }
 
 final class UsageView: NSView {
@@ -288,7 +290,10 @@ final class UsageView: NSView {
             let titleSize = title.size(withAttributes: titleAttributes)
             title.draw(at: NSPoint(x: pad, y: top - 15), withAttributes: titleAttributes)
             if !value.reset.isEmpty {
-                let reset = " · " + value.reset
+                var reset = " · " + value.reset
+                if value.showsRemaining, let remaining = remainingText(until: value.resetsAt) {
+                    reset += " · " + remaining
+                }
                 (reset as NSString).draw(at: NSPoint(x: pad + titleSize.width, y: top - 15),
                                          withAttributes: [.font: metaFont, .foregroundColor: NSColor.secondaryLabelColor])
             }
@@ -304,6 +309,16 @@ final class UsageView: NSView {
             tint.setFill()
             NSBezierPath(roundedRect: filled, xRadius: 2, yRadius: 2).fill()
         }
+    }
+
+    func remainingText(until timestamp: Double?) -> String? {
+        guard let timestamp else { return nil }
+        let seconds = max(0, timestamp - Date().timeIntervalSince1970)
+        let totalMinutes = Int(ceil(seconds / 60))
+        if totalMinutes < 1 { return "<1m left" }
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return hours > 0 ? "\(hours)h \(minutes)m left" : "\(minutes)m left"
     }
 }
 
@@ -440,6 +455,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     var gitHeadCache: [String: String] = [:]  // cwd -> resolved HEAD path ("" = confirmed non-git)
     var prevState: [String: String] = [:]  // id -> previous raw state per session
     var menuIsOpen = false                  // refresh the dropdown's per-session timers only while open
+    var usageView: UsageView?
     var sessionMenuItems: [(item: NSMenuItem, id: String)] = []
     var activeBase = ""        // label without the elapsed clock
     var startedAt: Double = 0  // unix seconds the current turn began (0 = no clock)
@@ -687,6 +703,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         menuIsOpen = false
         sessionMenuItems.removeAll()
+        usageView = nil
     }
 
     // The session SET only changes on reopen (NSMenu can't add/remove rows reliably mid-track).
@@ -697,6 +714,7 @@ final class StatusController: NSObject, NSMenuDelegate {
             let eff = s.eff.isEmpty ? effectiveState(s, now: now) : s.eff
             configureSessionRow(v, s, eff: eff)
         }
+        usageView?.needsDisplay = true
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -821,7 +839,9 @@ final class StatusController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
             menu.addItem(header("Usage"))
             let item = NSMenuItem()
-            item.view = UsageView(values: usageRows, width: CGFloat(uiConfig()["boxWidth"] ?? 320), tint: brand)
+            let view = UsageView(values: usageRows, width: CGFloat(uiConfig()["boxWidth"] ?? 320), tint: brand)
+            item.view = view
+            usageView = view
             menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -972,11 +992,11 @@ final class StatusController: NSObject, NSMenuDelegate {
         var values: [UsageWindowValue] = []
         if let used = usage.fiveHourUsed,
            usage.fiveHourResetsAt.map({ $0 > now }) ?? true {
-            values.append(UsageWindowValue(title: "5 hour", used: used, reset: usageResetText(usage.fiveHourResetsAt, weekly: false)))
+            values.append(UsageWindowValue(title: "5 hour", used: used, reset: usageResetText(usage.fiveHourResetsAt, weekly: false), resetsAt: usage.fiveHourResetsAt, showsRemaining: true))
         }
         if let used = usage.weeklyUsed,
            usage.weeklyResetsAt.map({ $0 > now }) ?? true {
-            values.append(UsageWindowValue(title: "Weekly", used: used, reset: usageResetText(usage.weeklyResetsAt, weekly: true)))
+            values.append(UsageWindowValue(title: "Weekly", used: used, reset: usageResetText(usage.weeklyResetsAt, weekly: true), resetsAt: usage.weeklyResetsAt, showsRemaining: false))
         }
         return values
     }
