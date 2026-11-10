@@ -51,6 +51,8 @@ Everything is controlled from the menu:
 
 - **Show timer:** toggle the elapsed `1m 1s` clock.
 - **Thinking words:** rotate a playful verb (`Manifesting…`, `Percolating…`) in place of `Thinking…`, like Claude Code (on by default).
+- **Focus when done:** when a chat finishes, that chat opens and its window comes to the front (on by default).
+- **Pause media when done:** when a chat finishes, videos and audio playing in Safari, Chrome, Arc, Brave, Edge and Vivaldi, plus Music, TV and QuickTime Player, are paused. Spotify is never touched (on by default). The first time, macOS asks to allow control of each browser. Chromium browsers need **View > Developer > Allow JavaScript from Apple Events** and Safari needs **Develop > Developer Settings > Allow JavaScript from Apple Events**.
 - **Animation style:**
   - **Claude Spark**, the web/chat "morph" spark
   - **Claude Code**, the terminal glyph spinner

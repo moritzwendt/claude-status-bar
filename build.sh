@@ -37,6 +37,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>Claude Status Bar pauses videos in your browser when a chat finishes.</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
@@ -71,7 +72,7 @@ xattr -cr "$APP"
 
 if [[ -n "$SIGN_ID" ]]; then
   echo "Signing with Developer ID: $SIGN_ID"
-  codesign --force --options runtime --timestamp --sign "$SIGN_ID" "$APP"
+  codesign --force --options runtime --timestamp --entitlements assets/entitlements.plist --sign "$SIGN_ID" "$APP"
 else
   echo "No Developer ID cert for team $TEAM_ID found — ad-hoc signing (local dev build)."
   codesign --force --sign - "$APP" >/dev/null 2>&1 || true

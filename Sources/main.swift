@@ -476,6 +476,8 @@ final class StatusController: NSObject, NSMenuDelegate {
     var sessionWord: [String: String] = [:] // id -> current thinking word; re-picked on each entry into "thinking"
     var soundThreshold: Double = 0  // 0 = off; else the min turn length (seconds) that chimes on completion
     var turnStart: [String: Double] = [:]  // id -> active turn start, for the completion-sound length gate
+    var focusOnDone = true
+    var pauseMediaOnDone = true
     lazy var completionSound: NSSound? = {
         guard let p = Bundle.main.path(forResource: "completion", ofType: "mp3"),
               let s = NSSound(contentsOfFile: p, byReference: true) else { return nil }
@@ -548,6 +550,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         if d.object(forKey: "iconSystem") != nil { iconSystem = d.bool(forKey: "iconSystem") }
         if d.object(forKey: "thinkingWords") != nil { useThinkingWords = d.bool(forKey: "thinkingWords") }
         if d.object(forKey: "soundThreshold") != nil { soundThreshold = d.double(forKey: "soundThreshold") }
+        if d.object(forKey: "focusOnDone") != nil { focusOnDone = d.bool(forKey: "focusOnDone") }
+        if d.object(forKey: "pauseMediaOnDone") != nil { pauseMediaOnDone = d.bool(forKey: "pauseMediaOnDone") }
         if let s = d.string(forKey: "animStyle"), let st = AnimStyle(rawValue: s) { animStyle = st }
         let menu = NSMenu()
         menu.delegate = self
@@ -833,6 +837,15 @@ final class StatusController: NSObject, NSMenuDelegate {
         }
         soundParent.submenu = soundSub
         menu.addItem(soundParent)
+
+        menu.addItem(toggleRow(title: "Focus when done", isOn: focusOnDone) { [weak self] on in
+            self?.focusOnDone = on
+            UserDefaults.standard.set(on, forKey: "focusOnDone")
+        })
+        menu.addItem(toggleRow(title: "Pause media when done", isOn: pauseMediaOnDone) { [weak self] on in
+            self?.pauseMediaOnDone = on
+            UserDefaults.standard.set(on, forKey: "pauseMediaOnDone")
+        })
 
         let usageRows = usageValues()
         if !usageRows.isEmpty {
@@ -1392,21 +1405,132 @@ final class StatusController: NSObject, NSMenuDelegate {
         return ""
     }
 
-    // Working->done edge for the completion chime, gated on turn length >= soundThreshold (0 = off).
-    // Reads prevState, which the evaluate() loop writes only AFTER this runs, so it must be called
-    // there before that write. Tracks the turn's start while the session is working.
-    func completionEdge(_ s: Session, now: Double) -> Bool {
+    func finishedTurnLength(_ s: Session, now: Double) -> Double? {
         if s.state == "thinking" || s.state == "tool", s.startedAt > 0 { turnStart[s.id] = s.startedAt }
         let prev = prevState[s.id] ?? ""
-        var edge = false
-        if soundThreshold > 0, s.state == "done", prev != "done", let st = turnStart[s.id], st > 0, now - st >= soundThreshold { edge = true }
+        var length: Double? = nil
+        if s.state == "done", prev != "done", let st = turnStart[s.id], st > 0 { length = now - st }
         if s.state == "done" { turnStart[s.id] = 0 }
-        return edge
+        return length
+    }
+
+    func handleFinished(_ finished: [Session]) {
+        if pauseMediaOnDone { pauseMedia() }
+        if focusOnDone, let latest = finished.max(by: { $0.ts < $1.ts }) { focusFinished(latest) }
+    }
+
+    func focusFinished(_ s: Session) {
+        let id = s.id, ep = s.entrypoint, tp = s.termProgram, cwd = s.cwd, pid = s.pid
+        guard ep == "claude-desktop" else {
+            openSession(id, entrypoint: ep, termProgram: tp, cwd: cwd, pid: pid)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let local = Self.desktopSessionID(forCLISession: id) else {
+                DispatchQueue.main.async { self?.openClaude() }
+                return
+            }
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            p.arguments = ["claude://code/continue?session=\(local)"]
+            try? p.run()
+        }
+    }
+
+    static func desktopSessionID(forCLISession id: String) -> String? {
+        let fm = FileManager.default
+        let root = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
+        guard let needle = id.data(using: .utf8), !id.isEmpty else { return nil }
+        var best: (id: String, activity: Double)?
+        for account in (try? fm.contentsOfDirectory(atPath: root)) ?? [] {
+            let accountDir = (root as NSString).appendingPathComponent(account)
+            for org in (try? fm.contentsOfDirectory(atPath: accountDir)) ?? [] {
+                let orgDir = (accountDir as NSString).appendingPathComponent(org)
+                for f in (try? fm.contentsOfDirectory(atPath: orgDir)) ?? [] where f.hasPrefix("local_") && f.hasSuffix(".json") {
+                    guard let data = fm.contents(atPath: (orgDir as NSString).appendingPathComponent(f)),
+                          data.range(of: needle) != nil,
+                          let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          o["cliSessionId"] as? String == id,
+                          o["isArchived"] as? Bool != true,
+                          let local = o["sessionId"] as? String, local.hasPrefix("local_") else { continue }
+                    let activity = (o["lastActivityAt"] as? NSNumber)?.doubleValue ?? 0
+                    if best == nil || activity > best!.activity { best = (local, activity) }
+                }
+            }
+        }
+        return best?.id
+    }
+
+    static let browserTargets: [(bundleID: String, chromium: Bool)] = [
+        ("com.apple.Safari", false),
+        ("com.google.Chrome", true),
+        ("com.google.Chrome.beta", true),
+        ("com.google.Chrome.canary", true),
+        ("company.thebrowser.Browser", true),
+        ("com.brave.Browser", true),
+        ("com.microsoft.edgemac", true),
+        ("com.vivaldi.Vivaldi", true),
+    ]
+
+    static let playerPauseScripts: [String: String] = [
+        "com.apple.Music": "tell application id \"com.apple.Music\" to if player state is playing then pause",
+        "com.apple.TV": "tell application id \"com.apple.TV\" to if player state is playing then pause",
+        "com.apple.QuickTimePlayerX": """
+            tell application id "com.apple.QuickTimePlayerX"
+                repeat with d in documents
+                    try
+                        if playing of d then pause d
+                    end try
+                end repeat
+            end tell
+            """,
+    ]
+
+    static let pageMediaPauseJS = "(function(){if(location.hostname.indexOf('spotify.com')>-1)return;document.querySelectorAll('video,audio').forEach(function(m){try{if(!m.paused)m.pause()}catch(e){}})})()"
+
+    static func browserPauseScript(bundleID: String, chromium: Bool) -> String {
+        let call = chromium ? "execute t javascript \"\(pageMediaPauseJS)\"" : "do JavaScript \"\(pageMediaPauseJS)\" in t"
+        return """
+            tell application id "\(bundleID)"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        try
+                            \(call)
+                        end try
+                    end repeat
+                end repeat
+            end tell
+            """
+    }
+
+    func pauseMedia() {
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
+        var scripts: [String] = []
+        for target in Self.browserTargets where running.contains(target.bundleID) {
+            scripts.append(Self.browserPauseScript(bundleID: target.bundleID, chromium: target.chromium))
+        }
+        for (bundleID, script) in Self.playerPauseScripts where running.contains(bundleID) {
+            scripts.append(script)
+        }
+        for script in scripts {
+            DispatchQueue.global(qos: .utility).async { Self.runAppleScript(script) }
+        }
+    }
+
+    static func runAppleScript(_ source: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        p.arguments = ["-e", source]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return }
+        p.waitUntilExit()
     }
 
     func evaluate() {
         let now = Date().timeIntervalSince1970
         var chime = false
+        var finished: [Session] = []
 
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
@@ -1424,11 +1548,15 @@ final class StatusController: NSObject, NSMenuDelegate {
             }
             sessions[id] = s
             updateThinkingWord(s)
-            if completionEdge(s, now: now) { chime = true }
+            if let length = finishedTurnLength(s, now: now) {
+                finished.append(s)
+                if soundThreshold > 0, length >= soundThreshold { chime = true }
+            }
             prevState[s.id] = s.state
         }
         for id in Array(prevState.keys) where sessions[id] == nil { prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil }
         if chime { completionSound?.play() }
+        if !finished.isEmpty { handleFinished(finished) }
 
         // Same-named projects (two clones/worktrees of one repo) get a parent-folder qualifier
         // ("work/myrepo" vs "tmp/myrepo") so their rows stay tellable apart. Runs after the reap so

@@ -3,6 +3,12 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+When a chat finishes, it opens and its window comes to the front, and media playing in browsers, Music, TV and QuickTime Player is paused. Spotify is left alone. Both behaviors have a toggle in the menu.
+
 ## [0.5.0] 2026 07 30
 
 ### Added
