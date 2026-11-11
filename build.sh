@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 # promised in homebrew-cask PR #274337). The EXECUTABLE stays "ClaudeStatusBar": lifecycle.js
 # pgreps that name and opens by bundle id, and every pkill/dev instruction relies on it, so only
 # the folder name changes.
-APP="build/Claude Status Bar.app"
+APP="build.noindex/Claude Status Bar.app"
 BIN="$APP/Contents/MacOS/ClaudeStatusBar"
 
 rm -rf "$APP"
@@ -85,18 +85,18 @@ if [[ "${1:-}" == "--dmg" ]]; then
   # actually hits, so the image must carry its own ticket to open without a warning.
   if [[ "${SKIP_NOTARIZE:-}" != "1" && -n "$SIGN_ID" ]]; then
     echo "Notarizing the app via profile '$NOTARY_PROFILE' (can take a minute)…"
-    rm -f build/app-notarize.zip
-    ditto -c -k --keepParent "$APP" build/app-notarize.zip
-    xcrun notarytool submit build/app-notarize.zip --keychain-profile "$NOTARY_PROFILE" --wait
+    rm -f build.noindex/app-notarize.zip
+    ditto -c -k --keepParent "$APP" build.noindex/app-notarize.zip
+    xcrun notarytool submit build.noindex/app-notarize.zip --keychain-profile "$NOTARY_PROFILE" --wait
     xcrun stapler staple "$APP"
-    rm -f build/app-notarize.zip
+    rm -f build.noindex/app-notarize.zip
     echo "App notarized + stapled."
   fi
 
   echo "Packaging DMG…"
-  DMG="build/ClaudeStatusBar.dmg"
-  STAGE="build/dmg-stage"
-  rm -rf "$STAGE" "$DMG" build/rw.dmg
+  DMG="build.noindex/ClaudeStatusBar.dmg"
+  STAGE="build.noindex/dmg-stage"
+  rm -rf "$STAGE" "$DMG" build.noindex/rw.dmg
   mkdir -p "$STAGE"
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
@@ -108,8 +108,8 @@ if [[ "${1:-}" == "--dmg" ]]; then
 
   # Lay out the window on a read-write image to capture its .DS_Store, then build the final
   # image from the folder (see below).
-  hdiutil create -volname "Claude Status Bar" -srcfolder "$STAGE" -ov -format UDRW build/rw.dmg >/dev/null
-  device="$(hdiutil attach -readwrite -noverify -noautoopen build/rw.dmg | grep -E '^/dev/' | head -1 | awk '{print $1}')"
+  hdiutil create -volname "Claude Status Bar" -srcfolder "$STAGE" -ov -format UDRW build.noindex/rw.dmg >/dev/null
+  device="$(hdiutil attach -readwrite -noverify -noautoopen build.noindex/rw.dmg | grep -E '^/dev/' | head -1 | awk '{print $1}')"
   sleep 1
   osascript <<'OSA' || echo "(Finder layout skipped — DMG still has the app + Applications shortcut)"
 tell application "Finder"
@@ -138,7 +138,7 @@ OSA
   # fseventsd logs, which recreates the folder.)
   cp "/Volumes/Claude Status Bar/.DS_Store" "$STAGE/.DS_Store" 2>/dev/null || true
   hdiutil detach "$device" >/dev/null || true
-  rm -f build/rw.dmg
+  rm -f build.noindex/rw.dmg
   # Scrub any hidden folder that may have accrued (.fseventsd, .Trashes, .Spotlight-V100, …),
   # keeping only the intentional .DS_Store that carries the window layout.
   find "$STAGE" -maxdepth 1 -name ".*" ! -name ".DS_Store" -exec rm -rf {} + 2>/dev/null || true
