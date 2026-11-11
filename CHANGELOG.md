@@ -9,6 +9,10 @@ All notable changes to Claude Status Bar are documented here. This project follo
 
 When a chat finishes, it opens and its window comes to the front, and media playing in browsers, Music, TV and QuickTime Player is paused. Spotify is left alone. Both behaviors have a toggle in the menu.
 
+### Changed
+
+Merged upstream 0.4.5: the Orbit animation style, renamed animation styles (Spark, Unicode, Clawd™), lower CPU use, an Every turn option for the completion sound, and a new app icon.
+
 ## [0.5.0] 2026 07 30
 
 ### Added
@@ -18,6 +22,42 @@ Each session now shows its active model and reasoning effort on a second line. A
 ### Changed
 
 The menu is slightly wider to keep the additional session details readable. The installer adds a local metrics collector while preserving and forwarding any existing custom Claude Code status line.
+
+## [0.4.5] - 2026-09-18
+
+### Added
+- **Orbit, Claude's new thinking dots animation style.** Three dots that drift together, merge, orbit each other and settle back out.
+- **A toggle to hide the status text.** "Show text" turns the menu bar label off for an icon-only menu bar. On by default. Suggested and first implemented by [@felixradtke](https://github.com/felixradtke) ([#62](https://github.com/m1ckc3s/claude-status-bar/pull/62)).
+
+### Changed
+- **New app icon.** The Orbit dots replace the pixel Clawd.
+- **Updated names for the animation styles.** Claude Spark is now **Spark**, Claude Code is now **Unicode**, and Crab Walking is now **Clawd™**. Your saved choice carries over untouched.
+
+### Removed
+- **The plain `Thinking…` option.** The old "Thinking words" toggle fell back to a plain `Thinking…` when switched off. The status text is now either the rotating words or nothing at all.
+
+## [0.4.4] - 2026-08-05
+
+### Changed
+- **Meaningfully lower CPU usage.** Four fixes, all measured: the menu bar title is no longer rebuilt and re-rendered on every animation frame (it only changes once a second), animation frames are cached instead of being redrawn each step, the "is the Claude desktop app running?" check moved from a query on every poll to a system notification, and each session's transcript is only re-read when it actually changes rather than 2.5 times a second per session.
+
+| | before | after |
+|---|---|---|
+| idle, resting icon | 2.0% | **1.2%** |
+| Claude Spark animating | 5.5% | **3.8%** |
+| Crab Walking animating | 6.6% | **4.7%** |
+| 10 sessions working at once | 9.1% | **4.8%** |
+| 20 sessions working at once | 11.5% | **5.5%** |
+
+  Percentages are share of one CPU core, measured over fixed windows on an M1 Pro. The more sessions you run at once, the bigger the difference: the old code did per-session file reads on every poll, so cost grew with each live session. Found and diagnosed by [@Bardin08](https://github.com/Bardin08) ([#53](https://github.com/m1ckc3s/claude-status-bar/issues/53)).
+
+## [0.4.3] - 2026-07-31
+
+### Added
+- **Completion Sound has an "Every turn" option.** The chime can now play the moment any turn finishes, instead of only after turns of a minute or longer. Still off by default.
+
+### Changed
+- New app icon.
 
 ## [0.4.2] - 2026-07-29
 
@@ -167,6 +207,9 @@ The menu is slightly wider to keep the additional session details readable. The 
 - Signed and notarized DMG so it opens without a Gatekeeper warning.
 - Claude Code plugin marketplace manifest for the plugin install path.
 
+[0.4.5]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.5
+[0.4.4]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.4
+[0.4.3]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.3
 [0.4.2]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.2
 [0.5.0]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.5.0
 [0.4.0]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.0

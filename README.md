@@ -54,10 +54,11 @@ Everything is controlled from the menu:
 - **Focus when done:** when a chat finishes, that chat opens and its window comes to the front (on by default).
 - **Pause media when done:** when a chat finishes, videos and audio playing in Safari, Chrome, Arc, Brave, Edge and Vivaldi, plus Music, TV and QuickTime Player, are paused. Spotify is never touched (on by default). The first time, macOS asks to allow control of each browser. Chromium browsers need **View > Developer > Allow JavaScript from Apple Events** and Safari needs **Develop > Developer Settings > Allow JavaScript from Apple Events**.
 - **Animation style:**
-  - **Claude Spark**, the web/chat "morph" spark
-  - **Claude Code**, the terminal glyph spinner
-  - **Crab Walking**, a pixel-art Clawd crab that scuttles while Claude works
-- **Icon color:** **Orange** or **System** (adaptive black/white). All three styles follow this setting: in System mode Crab Walking renders as a shaded monochrome silhouette that matches the menu bar.
+  - **Spark**, the web/chat "morph" spark
+  - **Unicode**, the terminal glyph spinner
+  - **Clawd™**, a pixel-art Clawd crab that scuttles while Claude works
+  - **Orbit**, three dots that orbit, merge and breathe
+- **Icon color:** **Orange** or **System** (adaptive black/white). All four styles follow this setting: in System mode Clawd™ renders as a shaded monochrome silhouette that matches the menu bar.
 - **Version and update:** the menu shows your current version and tells you when an update is ready (see [Updating](#updating)).
 
 ### Where it works
@@ -82,13 +83,11 @@ The installer merges its hooks into `~/.claude/settings.json` (backing it up fir
 
 ## Requirements
 
-- macOS 12+
-- [Claude Code](https://claude.com/claude-code) (CLI or the Desktop app)
-- Node.js
+- macOS 12+, [Claude Code](https://claude.com/claude-code) (CLI or the Desktop app), Node.js
 
 ## Troubleshooting
 
-Icon not appearing, vanishing on its own, or not animating when it should? See [Troubleshooting](TROUBLESHOOTING.md), most of it is expected behavior, not a bug.
+See [Troubleshooting](TROUBLESHOOTING.md)
 
 ## Uninstall
 
@@ -114,4 +113,4 @@ This is a free side project; I'm not monetizing it.
 
 ## License
 
-MIT
+MIT 
