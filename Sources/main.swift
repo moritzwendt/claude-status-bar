@@ -485,6 +485,13 @@ final class StatusController: NSObject, NSMenuDelegate {
     var turnStart: [String: Double] = [:]  // id -> active turn start, for the completion-sound length gate
     var focusOnDone = true
     var pauseMediaOnDone = true
+    var bellOnDone = true
+    lazy var doneBell: NSSound? = {
+        guard let p = Bundle.main.path(forResource: "done-bell", ofType: "wav"),
+              let s = NSSound(contentsOfFile: p, byReference: true) else { return nil }
+        s.volume = 0.6
+        return s
+    }()
     lazy var completionSound: NSSound? = {
         guard let p = Bundle.main.path(forResource: "completion", ofType: "mp3"),
               let s = NSSound(contentsOfFile: p, byReference: true) else { return nil }
@@ -602,6 +609,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         if d.object(forKey: "soundThreshold") != nil { soundThreshold = d.double(forKey: "soundThreshold") }
         if d.object(forKey: "focusOnDone") != nil { focusOnDone = d.bool(forKey: "focusOnDone") }
         if d.object(forKey: "pauseMediaOnDone") != nil { pauseMediaOnDone = d.bool(forKey: "pauseMediaOnDone") }
+        if d.object(forKey: "bellOnDone") != nil { bellOnDone = d.bool(forKey: "bellOnDone") }
         if let s = d.string(forKey: "animStyle"), let st = AnimStyle(rawValue: s) { animStyle = st }
         loadMarkConfig()
         let menu = NSMenu()
@@ -897,6 +905,10 @@ final class StatusController: NSObject, NSMenuDelegate {
         menu.addItem(toggleRow(title: "Pause media when done", isOn: pauseMediaOnDone) { [weak self] on in
             self?.pauseMediaOnDone = on
             UserDefaults.standard.set(on, forKey: "pauseMediaOnDone")
+        })
+        menu.addItem(toggleRow(title: "Bell when done", isOn: bellOnDone) { [weak self] on in
+            self?.bellOnDone = on
+            UserDefaults.standard.set(on, forKey: "bellOnDone")
         })
 
         let usageRows = usageValues()
@@ -1471,6 +1483,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func handleFinished(_ finished: [Session]) {
+        if bellOnDone { doneBell?.stop(); doneBell?.play() }
         if pauseMediaOnDone { pauseMedia() }
         if focusOnDone, let latest = finished.max(by: { $0.ts < $1.ts }) { focusFinished(latest) }
     }
