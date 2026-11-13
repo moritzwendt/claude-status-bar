@@ -94,6 +94,7 @@ process.stdin.on("end", () => {
       // icon rests instead of parking on a confusing "Waiting for you".
       const m = (p.message || "").toLowerCase();
       const isPerm = p.notification_type === "permission_prompt" ||
+        p.notification_type === "elicitation_dialog" ||
         m.includes("permission") || m.includes("approve") || m.includes("allow");
       if (!isPerm) return;
       state = "permission"; label = "Awaiting permission"; startedAt = 0;

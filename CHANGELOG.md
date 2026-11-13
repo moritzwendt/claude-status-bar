@@ -7,7 +7,7 @@ All notable changes to Claude Status Bar are documented here. This project follo
 
 ### Added
 
-When a chat finishes, it opens and its window comes to the front, and media playing in browsers, Music, TV and QuickTime Player is paused. Spotify is left alone. A short two tone bell plays at the same moment. Each behavior has a toggle in the menu.
+When a chat finishes, it opens and its window comes to the front, and media playing in browsers, Music, TV and QuickTime Player is paused. Spotify is left alone. A short two tone bell plays at the same moment. The chat also comes to the front when it stops to ask a question or for permission. Each behavior has a toggle in the menu.
 
 ### Changed
 

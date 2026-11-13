@@ -898,7 +898,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         soundParent.submenu = soundSub
         menu.addItem(soundParent)
 
-        menu.addItem(toggleRow(title: "Focus when done", isOn: focusOnDone) { [weak self] on in
+        menu.addItem(toggleRow(title: "Focus when done or asking", isOn: focusOnDone) { [weak self] on in
             self?.focusOnDone = on
             UserDefaults.standard.set(on, forKey: "focusOnDone")
         })
@@ -1482,13 +1482,22 @@ final class StatusController: NSObject, NSMenuDelegate {
         return length
     }
 
-    func handleFinished(_ finished: [Session]) {
-        if bellOnDone { doneBell?.stop(); doneBell?.play() }
-        if pauseMediaOnDone { pauseMedia() }
-        if focusOnDone, let latest = finished.max(by: { $0.ts < $1.ts }) { focusFinished(latest) }
+    func askingEdge(_ s: Session) -> Bool {
+        guard s.state == "permission", s.eff == "permission", let prev = prevState[s.id] else { return false }
+        return prev != "permission"
     }
 
-    func focusFinished(_ s: Session) {
+    func handleFinished() {
+        if bellOnDone { doneBell?.stop(); doneBell?.play() }
+        if pauseMediaOnDone { pauseMedia() }
+    }
+
+    func focusLatest(_ candidates: [Session]) {
+        guard focusOnDone, let latest = candidates.max(by: { $0.ts < $1.ts }) else { return }
+        focusSession(latest)
+    }
+
+    func focusSession(_ s: Session) {
         let id = s.id, ep = s.entrypoint, tp = s.termProgram, cwd = s.cwd, pid = s.pid
         guard ep == "claude-desktop" else {
             openSession(id, entrypoint: ep, termProgram: tp, cwd: cwd, pid: pid)
@@ -1600,6 +1609,7 @@ final class StatusController: NSObject, NSMenuDelegate {
         let now = Date().timeIntervalSince1970
         var chime = false
         var finished: [Session] = []
+        var asking: [Session] = []
 
         for id in Array(sessions.keys) {
             guard var s = sessions[id] else { continue }
@@ -1621,11 +1631,13 @@ final class StatusController: NSObject, NSMenuDelegate {
                 finished.append(s)
                 if soundThreshold > 0, length >= soundThreshold { chime = true }
             }
+            if askingEdge(s) { asking.append(s) }
             prevState[s.id] = s.state
         }
         for id in Array(prevState.keys) where sessions[id] == nil { prevState[id] = nil; sessionWord[id] = nil; turnStart[id] = nil }
         if chime { completionSound?.play() }
-        if !finished.isEmpty { handleFinished(finished) }
+        if !finished.isEmpty { handleFinished() }
+        focusLatest(finished + asking)
 
         // Same-named projects (two clones/worktrees of one repo) get a parent-folder qualifier
         // ("work/myrepo" vs "tmp/myrepo") so their rows stay tellable apart. Runs after the reap so
